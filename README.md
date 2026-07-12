@@ -38,7 +38,7 @@ Built with a **terminal-first philosophy**, REDPILOT provides a rich interactive
 ### Option 1: One-Command Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/redpilot/redpilot/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Thanwisut/RedPilot/main/apps/tui/scripts/install.sh | bash
 ```
 
 After installation:
@@ -51,7 +51,7 @@ redplt
 
 ```bash
 # Clone the repository
-git clone https://github.com/redpilot/redpilot.git
+git clone https://github.com/Thanwisut/RedPilot.git
 cd redpilot/apps/tui
 
 # Install dependencies

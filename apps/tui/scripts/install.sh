@@ -3,7 +3,7 @@
 # REDPILOT — Autonomous Penetration Testing Framework
 # One-command installer
 #
-# Usage: curl -fsSL https://raw.githubusercontent.com/redpilot/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/Thanwisut/RedPilot/main/apps/tui/scripts/install.sh | bash
 #
 set -euo pipefail
 
