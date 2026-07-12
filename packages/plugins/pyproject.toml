@@ -1,0 +1,10 @@
+[project]
+name = "redpilot-plugins"
+version = "0.1.0"
+description = "REDPILOT plugin loader — first/third-party plugins"
+requires-python = ">=3.12"
+dependencies = ["redpilot-core", "redpilot-tools"]
+
+[tool.uv.sources]
+redpilot-core = { workspace = true }
+redpilot-tools = { workspace = true }

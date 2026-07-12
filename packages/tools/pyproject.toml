@@ -1,0 +1,9 @@
+[project]
+name = "redpilot-tools"
+version = "0.1.0"
+description = "REDPILOT tool execution layer — adapters, sandbox, manifests"
+requires-python = ">=3.12"
+dependencies = ["redpilot-core"]
+
+[tool.uv.sources]
+redpilot-core = { workspace = true }

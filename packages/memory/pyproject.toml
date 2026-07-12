@@ -1,0 +1,9 @@
+[project]
+name = "redpilot-memory"
+version = "0.1.0"
+description = "REDPILOT memory subsystem — STM/LTM, vector store, context compression"
+requires-python = ">=3.12"
+dependencies = ["redpilot-core"]
+
+[tool.uv.sources]
+redpilot-core = { workspace = true }

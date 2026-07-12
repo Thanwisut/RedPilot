@@ -1,0 +1,14 @@
+{
+  "label": "Splash at columns=120 (wide terminal)",
+  "columns": 120,
+  "rows": 40,
+  "commands": [
+    { "type": "step", "label": "Render Splash at 120 cols", "commands": [
+      { "type": "setColumns", "columns": 120 },
+      { "type": "setRows", "rows": 40 },
+      { "type": "wait", "ms": 500 },
+      { "type": "captureFrame", "label": "splash-120" },
+      { "type": "assertFrameContains", "value": "████████╗" }
+    ]}
+  ]
+}

@@ -1,0 +1,6 @@
+[project]
+name = "redpilot-core"
+version = "0.1.0"
+description = "REDPILOT shared domain models — TaskGraph, Finding, Scope, ToolResult"
+requires-python = ">=3.12"
+dependencies = []

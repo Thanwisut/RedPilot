@@ -1,0 +1,16 @@
+[project]
+name = "redpilot-api"
+version = "0.1.0"
+description = "REDPILOT FastAPI backend — REST + WebSocket gateway"
+requires-python = ">=3.12"
+dependencies = [
+    "redpilot-core",
+    "redpilot-orchestrator",
+    "redpilot-providers",
+    "fastapi",
+]
+
+[tool.uv.sources]
+redpilot-core = { workspace = true }
+redpilot-orchestrator = { workspace = true }
+redpilot-providers = { workspace = true }

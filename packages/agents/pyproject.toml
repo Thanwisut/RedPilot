@@ -1,0 +1,11 @@
+[project]
+name = "redpilot-agents"
+version = "0.1.0"
+description = "REDPILOT specialized agent modules — recon, exploitation, post-exploitation"
+requires-python = ">=3.12"
+dependencies = ["redpilot-core", "redpilot-orchestrator", "redpilot-tools"]
+
+[tool.uv.sources]
+redpilot-core = { workspace = true }
+redpilot-orchestrator = { workspace = true }
+redpilot-tools = { workspace = true }

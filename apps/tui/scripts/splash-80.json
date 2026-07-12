@@ -1,0 +1,16 @@
+{
+  "label": "Splash at columns=80 (WIDE boundary)",
+  "columns": 80,
+  "rows": 40,
+  "commands": [
+    { "type": "step", "label": "Render Splash at 80 cols", "commands": [
+      { "type": "setColumns", "columns": 80 },
+      { "type": "setRows", "rows": 40 },
+      { "type": "wait", "ms": 500 },
+      { "type": "captureFrame", "label": "splash-80" },
+      { "type": "assertFrameContains", "value": "████████╗" },
+      { "type": "assertFrameContains", "value": "autonomous" },
+      { "type": "assertFrameContains", "value": "press any key" }
+    ]}
+  ]
+}

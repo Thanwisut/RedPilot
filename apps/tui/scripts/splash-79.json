@@ -1,0 +1,17 @@
+{
+  "label": "Splash at columns=79 (NARROW boundary)",
+  "columns": 79,
+  "rows": 40,
+  "commands": [
+    { "type": "step", "label": "Render Splash at 79 cols", "commands": [
+      { "type": "setColumns", "columns": 79 },
+      { "type": "setRows", "rows": 40 },
+      { "type": "wait", "ms": 500 },
+      { "type": "captureFrame", "label": "splash-79" },
+      { "type": "assertFrameContains", "value": "██████╗" },
+      { "type": "assertFrameContains", "value": "P E N E T R A T I O N   T E S T I N G" },
+      { "type": "assertFrameContains", "value": "autonomous" },
+      { "type": "assertFrameContains", "value": "press any key" }
+    ]}
+  ]
+}

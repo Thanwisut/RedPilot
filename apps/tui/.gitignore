@@ -1,0 +1,8 @@
+# Debug session logs
+.debug/
+*.debug.json
+*.debug.log
+
+# Node
+node_modules/
+dist/

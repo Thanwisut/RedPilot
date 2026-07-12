@@ -1,0 +1,40 @@
+{
+  "name": "redpilot-tui",
+  "version": "0.1.0",
+  "description": "REDPILOT terminal UI — Ink-based setup wizard, streaming console, agent tree",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.tsx",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "headless": "tsx src/debug/headless-runner.ts",
+    "debug": "tsx src/index.tsx --debug",
+    "dev:watch": "nodemon --exec \"tsx src/index.tsx\""
+  },
+  "nodemonConfig": {
+    "watch": [
+      "src/"
+    ],
+    "ext": "ts,tsx",
+    "delay": 300
+  },
+  "dependencies": {
+    "ink": "^5.0.0",
+    "react": "^18.3.1",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/react": "^18.3.0",
+    "@types/ws": "^8.5.10",
+    "ink-testing-library": "^4.0.0",
+    "nodemon": "^3.1.14",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0",
+    "vitest": "^4.1.10"
+  }
+}

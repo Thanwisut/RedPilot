@@ -1,0 +1,9 @@
+[project]
+name = "redpilot-reporting"
+version = "0.1.0"
+description = "REDPILOT reporting engine — aggregation, risk scoring, templating"
+requires-python = ">=3.12"
+dependencies = ["redpilot-core"]
+
+[tool.uv.sources]
+redpilot-core = { workspace = true }
