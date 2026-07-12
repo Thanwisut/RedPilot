@@ -11,7 +11,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 echo -e "${RED}"
 echo "  ██████  ███████ ██████  ██████  ██ ██      ██████  ████████"
@@ -27,7 +27,6 @@ echo ""
 
 echo -e "${YELLOW}[1/5] Checking prerequisites...${NC}"
 
-# Node.js
 if command -v node &>/dev/null; then
   NODE_VERSION=$(node -v | sed 's/v//' | cut -d. -f1)
   if [ "$NODE_VERSION" -lt 18 ]; then
@@ -42,7 +41,6 @@ else
   exit 1
 fi
 
-# npm
 if command -v npm &>/dev/null; then
   echo -e "${GREEN}✓ npm $(npm -v)${NC}"
 else
@@ -50,7 +48,13 @@ else
   exit 1
 fi
 
-# Python (recommended but not required for the TUI alone)
+if command -v git &>/dev/null; then
+  echo -e "${GREEN}✓ git $(git --version | cut -d' ' -f3)${NC}"
+else
+  echo -e "${RED}✗ git not found${NC}"
+  exit 1
+fi
+
 if command -v python3 &>/dev/null; then
   echo -e "${GREEN}✓ Python $(python3 --version | cut -d' ' -f2)${NC}"
 else
@@ -60,6 +64,7 @@ fi
 # ── Installation directory ────────────────────────────────────────────────
 
 INSTALL_DIR="${HOME}/.redpilot"
+REPO_DIR="${INSTALL_DIR}/redpilot"
 BIN_DIR="${HOME}/.local/bin"
 
 echo ""
@@ -69,28 +74,32 @@ mkdir -p "$BIN_DIR"
 echo -e "${GREEN}✓ ${INSTALL_DIR}${NC}"
 echo -e "${GREEN}✓ ${BIN_DIR}${NC}"
 
-# ── Clone or copy project files ───────────────────────────────────────────
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# ── Clone or update repository ────────────────────────────────────────────
 
 echo ""
 echo -e "${YELLOW}[3/5] Installing REDPILOT TUI...${NC}"
 
-# Copy project to install directory
-rsync -a --exclude='node_modules' --exclude='dist' --exclude='.git' "$PROJECT_DIR/" "$INSTALL_DIR/redpilot/"
-echo -e "${GREEN}✓ Project files copied to ${INSTALL_DIR}/redpilot/${NC}"
+REPO_URL="https://github.com/Thanwisut/RedPilot"
+
+if [ -d "$REPO_DIR/.git" ]; then
+  echo "Repository exists — pulling latest changes..."
+  git -C "$REPO_DIR" pull --ff-only
+  echo -e "${GREEN}✓ Repository updated${NC}"
+else
+  echo "Cloning repository..."
+  git clone "$REPO_URL" "$REPO_DIR"
+  echo -e "${GREEN}✓ Repository cloned to ${REPO_DIR}${NC}"
+fi
 
 # ── Install dependencies and build ────────────────────────────────────────
 
 echo ""
 echo -e "${YELLOW}[4/5] Installing dependencies...${NC}"
 
-cd "$INSTALL_DIR/redpilot/apps/tui"
+cd "$REPO_DIR/apps/tui"
 npm install --silent --no-fund --no-audit 2>&1 | tail -1
 echo -e "${GREEN}✓ Dependencies installed${NC}"
 
-# Build TypeScript
 echo ""
 echo "Building..."
 npx tsc --noEmit 2>&1 || true
@@ -104,8 +113,8 @@ echo -e "${YELLOW}[5/5] Creating redplt command...${NC}"
 cat > "$BIN_DIR/redplt" << 'EXEC'
 #!/usr/bin/env bash
 set -euo pipefail
-INSTALL_DIR="${HOME}/.redpilot"
-cd "$INSTALL_DIR/redpilot/apps/tui"
+REPO_DIR="${HOME}/.redpilot/redpilot"
+cd "$REPO_DIR/apps/tui"
 exec npx tsx src/index.tsx "$@"
 EXEC
 
@@ -116,9 +125,9 @@ echo -e "${GREEN}✓ Created ${BIN_DIR}/redplt${NC}"
 
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
   SHELL_CONFIG=""
-  if [ -n "$BASH_VERSION" ] && [ -f "$HOME/.bashrc" ]; then
+  if [ -n "${BASH_VERSION:-}" ] && [ -f "$HOME/.bashrc" ]; then
     SHELL_CONFIG="$HOME/.bashrc"
-  elif [ -n "$ZSH_VERSION" ] && [ -f "$HOME/.zshrc" ]; then
+  elif [ -n "${ZSH_VERSION:-}" ] && [ -f "$HOME/.zshrc" ]; then
     SHELL_CONFIG="$HOME/.zshrc"
   fi
 
