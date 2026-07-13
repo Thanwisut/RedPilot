@@ -111,6 +111,7 @@ class GenericAgent(AgentInstance):
                 agent_permission_level=permission_level,
                 task_node_id=self.node_id,
                 rationale=f"Node {self.node_id} in graph {self.graph_id}",
+                graph_id=self.graph_id,
             )
 
             tool_result = await self._tool_runner.run(request, self._scope)

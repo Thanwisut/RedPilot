@@ -9,7 +9,14 @@ The guard is enforced at two layers:
 1. Application layer (here) — logical check before we even fork a process
 2. Sandbox network-egress layer (in tools/) — defense in depth, so an
    app-layer bug doesn't translate into out-of-scope traffic
-"""
+
+**URL/Hostname matching** (for Browser Agent §7):
+Scope already supports domain matching via ``ScopeRule`` with
+``ALLOW_DOMAIN`` / ``EXCLUDE_DOMAIN`` rule types. The ``check_target()``
+method handles domain names, wildcard domains (``*.example.com``), and
+IPs/CIDRs. The Browser Agent's ``navigate`` action target is validated
+through the same ``check_target()`` path, after extracting the hostname
+from the URL if necessary."""
 
 from __future__ import annotations
 
@@ -79,9 +86,41 @@ class ScopeGuard:
     def check_target(self, target: str) -> ScopeCheckResult:
         """Check if *target* is within the authorized scope.
 
-        Delegates to Scope.check_target() which applies the default-deny rule.
+        Supports URL targets (extracts hostname before checking), hostnames,
+        IP addresses, and CIDR ranges. Delegates to ``Scope.check_target()``
+        which applies the default-deny rule.
+
+        For browser actions with full URLs (e.g., ``https://example.com/page``),
+        the hostname is extracted before scope validation.
+
+        Args:
+            target: A hostname, IP, CIDR, or full URL to validate.
+
+        Returns:
+            A ``ScopeCheckResult`` indicating whether the target is allowed.
         """
-        return self._scope.check_target(target)
+        # Extract hostname from URL if needed (for Browser Agent targets)
+        resolved_target = self._resolve_url_target(target)
+        return self._scope.check_target(resolved_target)
+
+    @staticmethod
+    def _resolve_url_target(target: str) -> str:
+        """Extract the hostname from a URL for scope checking.
+
+        If *target* looks like a URL (starts with http://, https://, etc.),
+        extract just the hostname portion. Otherwise return the target as-is.
+
+        Examples:
+            ``https://example.com/path?q=1`` → ``example.com``
+            ``http://192.168.1.1:8080/admin`` → ``192.168.1.1``
+            ``10.0.0.1`` → ``10.0.0.1``
+            ``example.com`` → ``example.com``
+        """
+        import re
+        url_match = re.match(r"^https?://([^:/?#]+)", target)
+        if url_match:
+            return url_match.group(1)
+        return target
 
     def check_time_window(self, at_time: datetime | None = None) -> bool:
         """Check if *at_time* falls within the engagement's authorized window.

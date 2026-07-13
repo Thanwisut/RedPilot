@@ -1,8 +1,16 @@
 /** StreamingOutput — renders token.delta events as live text per agent.
  *
  * Pure display — appends incoming text deltas to a buffer per agent_id.
+ * Now uses MarkdownText from @assistant-ui/react-ink-markdown for proper
+ * markdown rendering (bold, italic, code blocks, lists) instead of raw text.
+ *
+ * **Streaming behavior:** MarkdownText re-renders the full text on each update.
+ * This is fast enough for typical LLM output (microseconds) and avoids
+ * the complexity of incremental streaming state. Partial markdown (e.g.
+ * unclosed ** at the end of a chunk) renders as plain text until closed.
  */
 
+import { MarkdownText } from "@assistant-ui/react-ink-markdown";
 import { Box, Text } from "./Ink.js";
 import { palette } from "../theming/colors.js";
 
@@ -40,8 +48,8 @@ export function StreamingOutput({
       </Text>
       {visible.map((agentId) => {
         const text = buffers[agentId] ?? "";
-        const lines = text.split("\n").filter(Boolean);
-        const truncated = lines.slice(-maxLines);
+        const lines = text.split("\n");
+        const truncated = lines.slice(-maxLines).join("\n");
 
         return (
           <Box key={agentId} flexDirection="column" marginTop={1}>
@@ -54,9 +62,12 @@ export function StreamingOutput({
               paddingX={1}
               marginTop={1}
             >
-              <Text color={palette.grayLight} wrap="wrap">
-                {truncated.join("\n")}
-              </Text>
+              {/* MarkdownText handles bold, italic, code, lists, etc. */}
+              <MarkdownText
+                text={truncated}
+                wrap={true}
+                theme="dark"
+              />
             </Box>
           </Box>
         );

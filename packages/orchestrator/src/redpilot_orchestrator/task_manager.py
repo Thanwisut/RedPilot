@@ -92,6 +92,71 @@ class TaskManager:
         return self._running
 
     # ------------------------------------------------------------------
+    # Child node proposal — called from SpawnSubAgentAdapter
+    # ------------------------------------------------------------------
+
+    def propose_child_node(
+        self,
+        graph_id: str,
+        agent_id: str,
+        task_description: str,
+        target: str,
+        depends_on: list[str] | None = None,
+        input_payload: dict | None = None,
+    ) -> str:
+        """Create a new TaskNode in the specified graph and return its ID.
+
+        This is the narrow, explicit gateway through which an LLM-driven
+        ``spawn_sub_agent`` tool call creates a real, visible TaskNode
+        in the engagement graph. The node goes through normal
+        dispatch/retry/failure handling.
+
+        Args:
+            graph_id: The graph to add the node to.
+            agent_id: The agent manifest ID for this node.
+            task_description: Human-readable description.
+            target: The target for this sub-agent.
+            depends_on: Optional list of node IDs this node depends on.
+            input_payload: Optional payload passed as input_payload.
+
+        Returns:
+            The new node's ID.
+
+        Raises:
+            ValueError: If the graph is not found or agent_id is unknown.
+        """
+        graph = self._graph_store.load(graph_id)
+        if graph is None:
+            msg = f"Graph '{graph_id}' not found in store"
+            raise ValueError(msg)
+
+        manifest = self._agent_registry.get_manifest(agent_id)
+        if manifest is None:
+            msg = f"No manifest for agent '{agent_id}'"
+            raise ValueError(msg)
+
+        from redpilot_core.models.task_graph import TaskNode, TaskStatus
+
+        node = TaskNode(
+            agent_id=agent_id,
+            dependencies=depends_on or [],
+            payload={
+                "task_description": task_description,
+                "target": target,
+            },
+            input_payload=input_payload or {
+                "target": target,
+                "tool_name": agent_id,
+                "args": {},
+            },
+            status=TaskStatus.PENDING,
+        )
+        graph.add_node(node)
+        self._graph_store.save(graph)
+
+        return node.id
+
+    # ------------------------------------------------------------------
     # Dispatch
     # ------------------------------------------------------------------
 

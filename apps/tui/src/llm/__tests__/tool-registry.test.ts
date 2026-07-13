@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { AVAILABLE_TOOLS, getToolDefinition, formatToolCall } from "../tool-registry.js";
 
 describe("AVAILABLE_TOOLS", () => {
-  it("has 4 tools defined", () => {
-    expect(AVAILABLE_TOOLS.length).toBe(4);
+  it("has 11 tools defined (4 original + 7 new)", () => {
+    expect(AVAILABLE_TOOLS.length).toBe(11);
   });
 
   it("has recon_agent", () => {

@@ -201,6 +201,11 @@ class DockerSandboxFactory(SandboxFactory):
     and a supervisor-based container timeout. Linux capabilities default
     to ``--cap-drop=ALL`` with explicit per-invocation ``--cap-add``.
 
+    # Per-profile Docker images. Profiles not listed use the default image.
+    PROFILE_IMAGES: dict[SandboxProfile, str] = {
+        SandboxProfile.BROWSER: "redpilot-browser:latest",
+    }
+
     Attributes:
         scratch_base: Base directory for per-invocation scratch directories.
             Defaults to ``tempfile.mkdtemp(prefix=\"redpilot_scratch_\")``.
@@ -217,6 +222,10 @@ class DockerSandboxFactory(SandboxFactory):
             prefix="redpilot_scratch_",
         )
         self._image = image
+        # Per-profile image overrides (can be injected for testing)
+        self._profile_images: dict[SandboxProfile, str] = dict(
+            DockerSandboxFactory.PROFILE_IMAGES,
+        )
         # For testing: tracks the most recent supervisor Popen so tests can
         # verify it was killed and reaped after execute() returns.
         self._last_supervisor: subprocess.Popen[str] | None = None
@@ -234,6 +243,9 @@ class DockerSandboxFactory(SandboxFactory):
         base = PROFILE_RESOURCES.get(profile, ResourceLimits())
         resources = dataclasses.replace(base)
 
+        # Use profile-specific image if configured
+        image = self._profile_images.get(profile, self._image)
+
         return SandboxContext(
             container_id=f"rp-{run_id}",
             scratch_dir=scratch_dir,
@@ -243,6 +255,7 @@ class DockerSandboxFactory(SandboxFactory):
             metadata={
                 "run_id": run_id,
                 "network_name": f"rp_net_{run_id}",
+                "image": image,
             },
         )
 
@@ -342,7 +355,9 @@ class DockerSandboxFactory(SandboxFactory):
             ])
 
             # The image and the command to run
-            docker_args.append(self._image)
+            # Use per-profile image from context metadata if set, otherwise default
+            image = context.metadata.get("image", self._image)
+            docker_args.append(image)
             docker_args.extend(argv)
 
             # --- Run container ---

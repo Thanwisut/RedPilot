@@ -54,6 +54,7 @@ class ToolInvocationRequest:
     agent_permission_level: str = "read_only"
     task_node_id: str = ""
     rationale: str = ""
+    graph_id: str = "default"
 
 
 class ToolRunner:
@@ -204,7 +205,12 @@ class ToolRunner:
         # ---------------------------------------------------------------
         # 6. Build command via adapter
         # ---------------------------------------------------------------
-        argv = adapter.build_command(request.args, sandbox.scratch_dir)
+        # Inject graph_id into args for adapters that need it
+        # (SpawnSubAgentAdapter uses this to know which graph to mutate)
+        augmented_args = dict(request.args)
+        if "_graph_id" not in augmented_args:
+            augmented_args["_graph_id"] = request.graph_id
+        argv = adapter.build_command(augmented_args, sandbox.scratch_dir)
 
         # ---------------------------------------------------------------
         # 7. Execute inside sandbox
