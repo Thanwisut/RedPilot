@@ -1,14 +1,16 @@
 /** StreamingOutput — renders token.delta events as live text per agent.
  *
  * Pure display — appends incoming text deltas to a buffer per agent_id.
- * Uses MarkdownRenderer for proper bold/italic/code block rendering.
+ * Uses MarkdownText from @assistant-ui/react-ink-markdown for proper
+ * bold/italic/code block rendering.
  *
- * **Streaming behavior:** Re-renders the full text on each update via
- * MarkdownRenderer, which handles partial/unclosed tokens gracefully.
+ * **Streaming behavior:** Re-renders the full text on each update.
+ * Handles partial/unclosed tokens gracefully (renders as plain text
+ * until the markdown syntax is completed).
  */
 
+import { MarkdownText } from "@assistant-ui/react-ink-markdown";
 import { Box, Text } from "./Ink.js";
-import { MarkdownRenderer } from "./MarkdownRenderer.js";
 import { palette } from "../theming/colors.js";
 
 interface StreamingOutputProps {
@@ -59,8 +61,7 @@ export function StreamingOutput({
               paddingX={1}
               marginTop={1}
             >
-              {/* MarkdownRenderer handles bold, italic, code, lists, etc. */}
-              <MarkdownRenderer
+              <MarkdownText
                 text={truncated}
               />
             </Box>
