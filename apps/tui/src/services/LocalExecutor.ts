@@ -379,17 +379,30 @@ export async function executeLocal(toolCall: ToolCall): Promise<LocalExecutionRe
 // ======================================================================
 
 async function executeBrowser(args: Record<string, unknown>): Promise<LocalExecutionResult> {
-  const action = (args.action as string) ?? "";
+  let action = (args.action as string) ?? "";
   const url = (args.url as string) ?? "";
   const selector = (args.selector as string) ?? "";
   const value = (args.value as string) ?? "";
   const script = (args.script as string) ?? "";
 
+  // If no action specified but url is provided, default to navigate
+  if (!action && url) {
+    action = "navigate";
+  }
+
   if (!action) {
     return {
       status: "error",
       summary: "No browser action specified",
-      details: "The 'action' field is required. Valid actions: navigate, click, type, scroll, screenshot, execute_js",
+      details: [
+        "The 'action' field is required. Valid actions: navigate, click, type, scroll, screenshot, execute_js",
+        "",
+        "Correct usage examples:",
+        '  browser({"action": "navigate", "url": "https://example.com"})',
+        '  browser({"action": "screenshot"})',
+        '  browser({"action": "click", "selector": "#submit-btn"})',
+        '  browser({"action": "type", "selector": "#search", "value": "news"})',
+      ].join("\n"),
     };
   }
 
