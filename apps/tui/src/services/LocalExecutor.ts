@@ -25,6 +25,9 @@ import {
   resolveSafePathMustExist,
   PathEscapeError,
 } from "../utils/path-safety.js";
+import {
+  executeBrowserAction,
+} from "./playwright-mcp.js";
 
 export interface LocalExecutionResult {
   status: "success" | "error";
@@ -364,7 +367,130 @@ export async function executeLocal(toolCall: ToolCall): Promise<LocalExecutionRe
       return executeWriteFile(toolCall.arguments);
     case "edit_file":
       return executeEditFile(toolCall.arguments);
+    case "browser":
+      return executeBrowser(toolCall.arguments);
     default:
       return null; // Not a local-mode tool
+  }
+}
+
+// ======================================================================
+// BROWSER (via Playwright MCP)
+// ======================================================================
+
+async function executeBrowser(args: Record<string, unknown>): Promise<LocalExecutionResult> {
+  const action = (args.action as string) ?? "";
+  const url = (args.url as string) ?? "";
+  const selector = (args.selector as string) ?? "";
+  const value = (args.value as string) ?? "";
+  const script = (args.script as string) ?? "";
+
+  if (!action) {
+    return {
+      status: "error",
+      summary: "No browser action specified",
+      details: "The 'action' field is required. Valid actions: navigate, click, type, scroll, screenshot, execute_js",
+    };
+  }
+
+  const startTime = Date.now();
+
+  try {
+    const result = await executeBrowserAction(action, { url, selector, value, script });
+
+    const durationMs = Date.now() - startTime;
+    const durationStr = `(${(durationMs / 1000).toFixed(1)}s)`;
+
+    if (result.success) {
+      let summary: string;
+      let details: string;
+
+      switch (action) {
+        case "navigate":
+          summary = `Navigated to ${url} ${durationStr}`;
+          details = [
+            `Action: navigate`,
+            `URL: ${url}`,
+            `Status: completed`,
+            result.data ? `Content: ${result.data.slice(0, 500)}` : "",
+          ].filter(Boolean).join("\n");
+          break;
+
+        case "screenshot":
+          summary = `Screenshot captured ${durationStr}`;
+          details = [
+            `Action: screenshot`,
+            `URL: ${url || "current page"}`,
+            `Status: completed`,
+            result.screenshot ? `Screenshot: ${result.screenshot}` : "",
+            result.data ? `Data: ${result.data.slice(0, 200)}` : "",
+          ].filter(Boolean).join("\n");
+          break;
+
+        case "click":
+          summary = `Clicked element "${selector}" ${durationStr}`;
+          details = [
+            `Action: click`,
+            `Selector: ${selector}`,
+            `Status: completed`,
+            result.data ? `Result: ${result.data.slice(0, 500)}` : "",
+          ].filter(Boolean).join("\n");
+          break;
+
+        case "type":
+          summary = `Typed into "${selector}" ${durationStr}`;
+          details = [
+            `Action: type`,
+            `Selector: ${selector}`,
+            `Value: ${value.slice(0, 100)}`,
+            `Status: completed`,
+          ].join("\n");
+          break;
+
+        case "scroll":
+          summary = `Scrolled ${selector ? `to "${selector}"` : "page"} ${durationStr}`;
+          details = [
+            `Action: scroll`,
+            selector ? `Selector: ${selector}` : "Scroll: page",
+            `Status: completed`,
+          ].filter(Boolean).join("\n");
+          break;
+
+        case "execute_js":
+          summary = `Executed JavaScript ${durationStr}`;
+          details = [
+            `Action: execute_js`,
+            `Script: ${script.slice(0, 200)}`,
+            `Status: completed`,
+            result.data ? `Result: ${result.data.slice(0, 1000)}` : "Result: (no return value)",
+          ].filter(Boolean).join("\n");
+          break;
+
+        default:
+          summary = `Browser action "${action}" completed ${durationStr}`;
+          details = `Action: ${action}\nStatus: completed`;
+      }
+
+      return { status: "success", summary, details };
+    }
+
+    // Failed
+    return {
+      status: "error",
+      summary: `Browser action "${action}" failed`,
+      details: [
+        `Action: ${action}`,
+        result.error ? `Error: ${result.error}` : "Unknown error",
+        `URL: ${url || "—"}`,
+        selector ? `Selector: ${selector}` : "",
+      ].filter(Boolean).join("\n"),
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      status: "error",
+      summary: `Browser action "${action}" errored`,
+      details: `Error: ${msg}`,
+    };
   }
 }

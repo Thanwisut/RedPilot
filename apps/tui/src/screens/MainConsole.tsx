@@ -23,7 +23,6 @@ import { getConfig } from "../services/config-store.js";
 import { streamChat, buildToolSystemMessage } from "../providers/registry.js";
 import type { ChatMessage, ToolCall } from "../providers/types.js";
 import { AVAILABLE_TOOLS, getToolDefinition } from "../llm/tool-registry.js";
-import { ExecutionScreen } from "./ExecutionScreen.js";
 import { executeTool, setAutoApprove, getWsStatus } from "../services/ExecutionManager.js";
 import type { ExecutionResult } from "../services/ExecutionManager.js";
 
@@ -79,8 +78,6 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
   const [phase, setPhase] = useState<Phase>({ type: "idle" });
   const [inputBuffer, setInputBuffer] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
-  const [executingToolCall, setExecutingToolCall] = useState<ToolCall | null>(null);
-  const [toolResult, setToolResult] = useState<ExecutionResult | null>(null);
   const [autoMode, setAutoMode] = useState(false);
 
   // ---- Refs ----
@@ -277,34 +274,57 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
             );
           }
 
-          /** Execute a tool, show the result briefly, then continue with follow-up. */
+          /** Execute a tool inline and continue with follow-up.
+           *  Shows "using tool rn bro!" while executing, then
+           *  continueWithResult adds the clean result entries. */
           async function executeAndContinue(tool: ToolCall): Promise<void> {
-            setExecutingToolCall(tool);
-            const execResult = await executeTool(tool);
-            // Show result on ExecutionScreen for 600ms before continuing
-            setToolResult(execResult);
-            await new Promise((resolve) => setTimeout(resolve, 600));
-            setExecutingToolCall(null);
-            setToolResult(null);
-
-            if (!execResult) {
-              setHistory((prev) => [...prev, { role: "system", content: `Tool call failed: ${tool.name}` }]);
-              setPhase({ type: "idle" });
-              return;
-            }
-
-            await continueWithResult(tool, execResult);
-          }
-
-          // ── AUTO MODE: execute immediately without confirmation ──
-          if (autoMode) {
-            const argsStr = Object.entries(tc.arguments)
+            const inlineArgs = Object.entries(tool.arguments)
               .map(([k, v]) => `${k}: ${v}`)
               .join(", ");
             setHistory((prev) => [...prev, {
               role: "system",
-              content: `[Auto] Executing tool: ${tc.name}(${argsStr})`,
+              content: `using ${tool.name}(${inlineArgs}) rn bro!`,
             }]);
+
+            let execResult: ExecutionResult;
+            try {
+              execResult = await executeTool(tool);
+            } catch (err: unknown) {
+              // Replace "using..." with error on unexpected failure
+              const errMsg = err instanceof Error ? err.message : String(err);
+              setHistory((prev) => {
+                const updated = [...prev];
+                if (updated.length > 0) {
+                  updated[updated.length - 1] = {
+                    role: "error",
+                    content: `Tool errored: ${tool.name} — ${errMsg}`,
+                  };
+                }
+                return updated;
+              });
+              setPhase({ type: "idle" });
+              return;
+            }
+
+            // Replace "using..." with failure if no result returned
+            if (!execResult) {
+              setHistory((prev) => {
+                const updated = [...prev];
+                if (updated.length > 0) {
+                  updated[updated.length - 1] = { role: "error", content: `Tool call failed: ${tool.name}` };
+                }
+                return updated;
+              });
+              setPhase({ type: "idle" });
+              return;
+            }
+
+            // continueWithResult adds clean [Called tool: ...] + result entries
+            await continueWithResult(tool, execResult);
+          }
+
+          // ── AUTO MODE: execute immediately (inline "using... rn bro!" shown) ──
+          if (autoMode) {
             await executeAndContinue(tc);
             return;
           }
@@ -362,24 +382,23 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
 
   // ---- Input handling ----
   useInput((input, key) => {
-    // If execution screen is active, ignore input
-    if (executingToolCall) return;
-
     // Tool call confirmation
-    if (phase.type === "tool_call") {
-      if (key.return) {
-        const pending = toolCallPendingRef.current;
-        if (!pending) return;
-        // Clear tool_call phase immediately
-        setPhase({ type: "idle" });
-        // Show execution screen
-        setExecutingToolCall(pending.toolCall);
-        // Execute asynchronously
-        executeTool(pending.toolCall).then((result) => {
-          setExecutingToolCall(null);
-          pending.resolve(result);
-        });
-      }
+    if (phase.type === "tool_call") {        if (key.return) {
+          const pending = toolCallPendingRef.current;
+          if (!pending) return;
+          // Clear tool_call phase and show execution indicator
+          setPhase({ type: "idle" });
+          setHistory((prev) => [...prev, {
+            role: "system",
+            content: `executing ${pending.toolCall.name}...`,
+          }]);
+          // Execute asynchronously (inline result via history)
+          executeTool(pending.toolCall).then((result) => {
+            pending.resolve(result);
+          }).catch(() => {
+            pending.resolve(null);
+          });
+        }
       if (key.escape) {
         toolCallPendingRef.current?.resolve(null);
         toolCallPendingRef.current = null;
@@ -403,7 +422,12 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
       if (text.startsWith("/")) {
         handleCommand(text);
       } else {
-        sendMessage(text);
+        sendMessage(text).catch((err) => {
+          // Prevent unhandled AbortError crashes
+          if ((err as Error)?.name !== "AbortError") {
+            console.error("sendMessage error:", err);
+          }
+        });
       }
       setInputBuffer("");
       setCursorPos(0);
@@ -487,29 +511,10 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
     }
   }
 
-  // ---- Tool execution done (called by ExecutionScreen) ----
-  const handleExecutionDone = useCallback((_result: ExecutionResult | null) => {
-    // ExecutionScreen already resolved the promise via executeTool().then()
-    // This is a no-op — the flow continues in sendMessage.
-    // But we need to clear executingToolCall if the promise didn't already
-    setExecutingToolCall(null);
-  }, []);
-
   // =====================================================================
   // RENDER
   // =====================================================================
 
-  // ── Execution screen ──
-  if (executingToolCall) {
-    return (
-      <ExecutionScreen
-        toolCall={executingToolCall}
-        toolDef={getToolDefinition(executingToolCall.name)}
-        onDone={handleExecutionDone}
-        result={toolResult}
-      />
-    );
-  }
 
   // ── Spinner ──
   const spinnerChar = phase.type === "thinking"

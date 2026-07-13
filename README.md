@@ -105,7 +105,7 @@ Auto mode lets tools execute **without requiring manual confirmation** for each 
 
 When auto mode is **ON**:
 - Tool calls execute immediately as soon as the LLM requests them
-- The execution screen flashes briefly showing what ran
+- An inline message shows `⚙ using toolname rn bro!` during execution (no modal or overlay)
 - The LLM automatically continues with the result (no `[Enter]` needed)
 - Nested tool calls (LLM following up with another tool) also auto-execute
 - WS backend approval requests are auto-approved
@@ -123,7 +123,7 @@ Type `/auto` again to toggle it off.
 The TUI can run tools in three modes, tried in order:
 
 1. **WebSocket backend** (FastAPI Python server) — full ToolRunner pipeline with real adapters
-2. **Local mode** (Node.js `child_process` + `fs`) — runs `shell_exec` and filesystem tools on your host with safety guards
+2. **Local mode** (Node.js) — runs `shell_exec`, filesystem tools, and **browser** (via [Playwright MCP](https://github.com/microsoft/playwright-mcp)) on your host with safety guards
 3. **Simulation** — built-in mock results for all tools
 
 The banner shows the current backend status: `✓ connected (WS)` or `— local mode`. Type `/auto` to see detailed connection info.
@@ -193,7 +193,7 @@ REDPILOT dispatches agents and shows live execution views:
 |-----------|-------------|
 | **Setup Wizard** | Provider selection, API key entry, model catalog browsing |
 | **Main Console** | Interactive prompt — idle until user submits a task |
-| **Execution Screen** | Live agent dashboard (mounted only during task execution) |
+| **Execution Screen** | Inline tool execution display ("using tool rn bro!") integrated into conversation |
 | **SessionClient** | Typed WebSocket client for the REDPILOT event contract |
 | **Agent Tree** | Live status dashboard for all spawned agents |
 | **Streaming Output** | Real-time LLM token display with per-agent buffers |

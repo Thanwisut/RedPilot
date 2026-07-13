@@ -24,6 +24,8 @@
   },
   "dependencies": {
     "@assistant-ui/react-ink-markdown": "^0.0.30",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@playwright/mcp": "^0.0.78",
     "ink": "^7.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
