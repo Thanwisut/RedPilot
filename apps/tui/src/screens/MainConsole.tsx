@@ -92,7 +92,14 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
   const toolCallPendingRef = useRef<{
     resolve: (result: ExecutionResult | null) => void;
     toolCall: ToolCall;
+    /** If the key handler fixed a browser() call before execution, this
+     *  stores the corrected call so continueWithResult shows accurate args. */
+    fixedToolCall?: ToolCall;
   } | null>(null);
+
+  /** Stores the last user input text so both the auto-mode executeAndContinue path
+   *  and the manual-mode key handler can apply fixBrowserCall before execution. */
+  const lastUserTextRef = useRef<string>("");
 
   /** Circuit breaker: tracks consecutive identical tool failures to break infinite loops. */
   const toolLoopGuardRef = useRef<{
@@ -199,6 +206,9 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
 
   // ---- Send message + handle full tool call loop ----
   const sendMessage = useCallback(async (text: string) => {
+    // Store the user's text for use by fixBrowserCall in both auto and manual paths
+    lastUserTextRef.current = text;
+
     if (!config?.provider || !config?.model) {
       setPhase({ type: "error", message: "No provider configured. Type /logout to configure." });
       return;
@@ -290,9 +300,10 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
                   const nestedResult = await new Promise<ExecutionResult | null>((resolve) => {
                     toolCallPendingRef.current = { resolve, toolCall: nextTc };
                   });
+                  const effectiveNestedTc = toolCallPendingRef.current?.fixedToolCall ?? nextTc;
                   toolCallPendingRef.current = null;
                   if (nestedResult) {
-                    await continueWithResult(nextTc, nestedResult);
+                    await continueWithResult(effectiveNestedTc, nestedResult);
                   } else {
                     setPhase({ type: "idle" });
                   }
@@ -314,10 +325,35 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
             );
           }
 
+          /** Pre-process a browser tool call: if the LLM called browser()
+           *  with no arguments, build a navigate action from the user's
+           *  search query. This handles models that don't properly follow
+           *  the tool schema. */
+          function fixBrowserCall(tool: ToolCall, userQuery: string): ToolCall {
+            if (tool.name !== "browser") return tool;
+            const args = tool.arguments as Record<string, unknown>;
+            if (args.action && args.action !== "") return tool; // already has action
+            if (args.url && args.url !== "") {
+              // Has url but no action
+              return { ...tool, arguments: { ...args, action: "navigate" } };
+            }
+            // Zero arguments — extract search intent from user message
+            const searchQuery = extractSearchQuery(userQuery);
+            const searchUrl = searchQuery
+              ? `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`
+              : "https://www.google.com";
+            return {
+              ...tool,
+              arguments: { action: "navigate", url: searchUrl },
+            };
+          }
+
           /** Execute a tool inline and continue with follow-up.
            *  Shows "using tool rn bro!" while executing, then
            *  continueWithResult adds the clean result entries. */
           async function executeAndContinue(tool: ToolCall): Promise<void> {
+            // Fix common browser tool call mistakes before dispatching
+            tool = fixBrowserCall(tool, text);
             const inlineArgs = Object.entries(tool.arguments)
               .map(([k, v]) => `${k}: ${v}`)
               .join(", ");
@@ -376,6 +412,9 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
             toolCallPendingRef.current = { resolve, toolCall: tc };
           });
 
+          // If the key handler fixed a browser() call, use the fixed version
+          // for accurate history (the ref is cleared before continueWithResult)
+          const effectiveTc = toolCallPendingRef.current?.fixedToolCall ?? tc;
           toolCallPendingRef.current = null;
 
           if (!userResult) {
@@ -385,7 +424,7 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
             return;
           }
 
-          await continueWithResult(tc, userResult);
+          await continueWithResult(effectiveTc, userResult);
         },
         (err) => {
           setPhase({ type: "error", message: err });
@@ -426,14 +465,33 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
     if (phase.type === "tool_call") {        if (key.return) {
           const pending = toolCallPendingRef.current;
           if (!pending) return;
+          // Fix common browser tool call mistakes before dispatching
+          // (same logic as fixBrowserCall in the auto-mode path)
+          let toolToExecute = pending.toolCall;
+          if (toolToExecute.name === "browser") {
+            const args = toolToExecute.arguments as Record<string, unknown>;
+            if (!args.action && !args.url) {
+              // Zero arguments — extract search intent from user's last message
+              const searchQuery = extractSearchQuery(lastUserTextRef.current);
+              const searchUrl = searchQuery
+                ? `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`
+                : "https://www.google.com";
+              toolToExecute = { ...toolToExecute, arguments: { action: "navigate", url: searchUrl } };
+            } else if (!args.action && args.url) {
+              // Has url but no action
+              toolToExecute = { ...toolToExecute, arguments: { ...args, action: "navigate" } };
+            }
+          }
           // Clear tool_call phase and show execution indicator
           setPhase({ type: "idle" });
           setHistory((prev) => [...prev, {
             role: "system",
-            content: `executing ${pending.toolCall.name}...`,
+            content: `executing ${toolToExecute.name}...`,
           }]);
+          // Store the fixed call so continueWithResult shows accurate args in history
+          pending.fixedToolCall = toolToExecute;
           // Execute asynchronously (inline result via history)
-          executeTool(pending.toolCall).then((result) => {
+          executeTool(toolToExecute).then((result) => {
             pending.resolve(result);
           }).catch(() => {
             pending.resolve(null);
@@ -507,7 +565,15 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
     switch (lower) {
       case "/logout": case "logout": onLogout?.(); break;
       case "/clear": case "clear": setHistory([]); break;
-      case "/exit": case "quit": case "/quit": exit(); break;
+      case "/exit": case "quit": case "/quit":
+        // Clean up active handles first, then force exit
+        if (spinnerRef.current) clearInterval(spinnerRef.current);
+        abortRef.current?.abort();
+        exit();
+        // Ink's exit() only unmounts the React tree — active handles
+        // (WebSocket, intervals) keep the process alive, so force exit.
+        process.exit(0);
+        break;
       case "/auto": {
         const newVal = !autoMode;
         setAutoMode(newVal);
@@ -700,4 +766,51 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
       )}
     </Box>
   );
+}
+
+// ======================================================================
+// Helper: extract a search query from a user's natural-language request
+// ======================================================================
+
+/**
+ * Extract a search query from a user's message for use with browser search.
+ * Strips boilerplate like "use the browser", "search for", "look for", etc.
+ * and returns the cleaned query string.
+ *
+ * Examples:
+ *   "use the browser search for the news about cyber security lately"
+ *     → "cyber security news"
+ *   "open browser and looking for cyber security news today"
+ *     → "cyber security news"
+ *   "browse the web for redpilot"
+ *     → "redpilot"
+ *   "hello" → null (no search intent)
+ */
+function extractSearchQuery(text: string): string | null {
+  const lower = text.toLowerCase().trim();
+
+  // Check if this looks like a search/browse request
+  const searchPatterns = [
+    /(?:search|look|find|browse)(?:ing)?\s+(?:for|up)?\s+(.+)/i,
+    /(?:search|look|find|browse)\s+(?:the\s+)?(?:web|internet|browser)?\s+(?:for|about|on)\s+(.+)/i,
+    /(?:search|look|find|browse)(?:ed|ing)?\s+(?:the\s+)?(?:news|info|information|article|updates?)\s+(?:about|on|for|regarding)\s+(.+)/i,
+    /(?:open|use|launch|start)\s+(?:the\s+)?(?:browser|web\s*browser)\s+(?:and\s+)?(?:search|find|look|go|browse|navigate|open)\s+(?:for|to|up)?\s+(.+)/i,
+    /(?:need|want|would\s+like)\s+(?:to\s+)?(?:search|find|look\s+up|browse)\s+(.+)/i,
+    /(?:use|open|launch)\s+(?:browser|chrome|firefox|web)\s+(.+)/i,
+    /what(?:'s|\s+is)\s+(?:the\s+)?(?:latest|recent|current|new|trending)\s+(.+)/i,
+  ];
+
+  for (const pattern of searchPatterns) {
+    const match = lower.match(pattern);
+    if (match && match[1]) {
+      let query = match[1].trim();
+      // Remove trailing filler words
+      query = query.replace(/\s+(?:lately|today|now|please|thanks)$/i, "").trim();
+      // Remove leading articles/prepositions
+      query = query.replace(/^(?:the|about|on|for|regarding)\s+/i, "").trim();
+      if (query.length > 1) return query;
+    }
+  }
+
+  return null;
 }

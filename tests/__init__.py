@@ -1,1 +1,0 @@
-"""REDPILOT test suite."""

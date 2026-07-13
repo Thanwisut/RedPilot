@@ -139,8 +139,6 @@ export interface ToolExecuteOutgoing {
 
 export type OutgoingMessage = ApprovalResolveOutgoing | ToolExecuteOutgoing;
 
-import { getLogger } from "../debug/debug-logger.js";
-
 // ---------------------------------------------------------------------------
 // SessionClient
 // ---------------------------------------------------------------------------
@@ -227,8 +225,6 @@ export class SessionClient {
   send(msg: OutgoingMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
-      const logger = getLogger();
-      logger.logWsSent({ type: msg.type, payload: msg.payload });
     }
   }
 
@@ -296,15 +292,6 @@ export class SessionClient {
   // -----------------------------------------------------------------------
 
   private dispatch(msg: WsMessage): void {
-    // Log to debug logger
-    const logger = getLogger();
-    logger.logWsEvent({
-      type: msg.type,
-      session_id: msg.session_id,
-      payload: msg.payload,
-      ts: msg.ts,
-    });
-
     const handlers = this.handlers.get(msg.type);
     if (handlers) {
       for (const cb of handlers) {

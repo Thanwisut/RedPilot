@@ -18,12 +18,7 @@ import { Text } from "./components/Ink.js";
 import { SetupWizard } from "./screens/SetupWizard.js";
 import { MainConsole } from "./screens/MainConsole.js";
 import { palette } from "./theming/colors.js";
-import { getLogger } from "./debug/debug-logger.js";
 import { isConfigured, clearConfig } from "./services/config-store.js";
-
-if (process.argv.includes("--debug")) {
-  import("./debug/debug-logger.js").then((m) => m.enableDebug());
-}
 
 type Screen = "loading" | "wizard" | "console";
 
@@ -32,15 +27,6 @@ function App() {
   const prevScreenRef = useRef<Screen | null>(null);
 
   useEffect(() => {
-    const prev = prevScreenRef.current;
-    if (prev !== null && prev !== screen) {
-      const logger = getLogger();
-      logger.logScreenTransition({ from: prev, to: screen });
-      logger.logTerminalDimensions({
-        columns: process.stdout.columns ?? 80,
-        rows: process.stdout.rows ?? 24,
-      });
-    }
     prevScreenRef.current = screen;
   }, [screen]);
 

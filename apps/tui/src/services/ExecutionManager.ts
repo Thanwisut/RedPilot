@@ -313,6 +313,17 @@ function simulateToolCall(tc: ToolCall): { status: "success" | "error"; summary:
 export async function executeTool(toolCall: ToolCall): Promise<ExecutionResult> {
   const start = Date.now();
 
+  // ── Pre-process: fix url-without-action browser calls ──
+  // If the LLM provides a url but forgets 'action', default to navigate.
+  // More sophisticated fixes (zero-args with search intent) are handled
+  // upstream in MainConsole.tsx where the user's query text is available.
+  if (toolCall.name === "browser") {
+    const args = toolCall.arguments as Record<string, unknown>;
+    if (!args.action && args.url) {
+      toolCall = { ...toolCall, arguments: { ...args, action: "navigate" } };
+    }
+  }
+
   // Try WebSocket first
   const wsResult = await executeViaWs(toolCall);
   if (wsResult) {

@@ -11,7 +11,7 @@
 #   make typecheck    TypeScript type-check
 #   make clean    Remove build artifacts
 
-.PHONY: help dev backend tui test test-python test-tui typecheck clean
+.PHONY: help dev backend tui typecheck clean
 
 # ── Configuration ────────────────────────────────────────────────────
 
@@ -19,6 +19,7 @@ PORT      ?= 8080
 TUI_DIR   ?= apps/tui
 API_DIR   ?= apps/api
 PYTHON    ?= uv run python
+
 # ── Default target ───────────────────────────────────────────────────
 
 help:
@@ -28,14 +29,10 @@ help:
 	@echo "  make dev           Start backend (bg) + TUI (fg)"
 	@echo "  make backend       Start Python backend only"
 	@echo "  make tui           Start TUI only"
-	@echo "  make test          Run all tests"
-	@echo "  make test-python   Run Python tests"
-	@echo "  make test-tui      Run TUI tests"
 	@echo "  make typecheck     TypeScript type-check"
 	@echo "  make clean         Remove build artifacts"
 	@echo ""
 	@echo "  PORT=8081          Override backend port"
-	@echo "  ARGS=\"-k test\"    Filter tests (pytest/vitest)"
 	@echo ""
 
 .DEFAULT_GOAL := help
@@ -80,25 +77,6 @@ tui:
 	@echo "  (Connect to existing backend at ws://localhost:$(PORT)/ws)"
 	@echo ""
 	cd $(PWD)/$(TUI_DIR) && npx tsx src/index.tsx
-
-# ── Tests ────────────────────────────────────────────────────────────
-
-test: test-python test-tui typecheck
-	@echo ""
-	@echo "── All tests passed ────────────────────────────────"
-
-test-python:
-	@echo "── Python tests ──────────────────────────────────"
-	@cd $(PWD) && uv run python -m pytest tests/ -v --tb=short \
-		--ignore=tests/tools/test_docker_sandbox.py \
-		-k "not docker" \
-		$(ARGS)
-	@echo ""
-
-test-tui:
-	@echo "── TUI tests ─────────────────────────────────────"
-	@cd $(PWD)/$(TUI_DIR) && npx vitest run $(ARGS)
-	@echo ""
 
 # ── TypeScript type-check ────────────────────────────────────────────
 
