@@ -87,9 +87,52 @@ After setup, the console shows a clean prompt awaiting your task:
 
 | Command | Description |
 |---------|-------------|
-| `/models` | Show the LLM model catalog for your provider |
+| `/help` | Display available commands and current status |
+| `/auto` | Toggle auto mode — tools execute without confirmation |
+| `/clear` | Clear conversation history |
 | `/logout` | Return to the Setup Wizard |
-| `/help` | Display available commands |
+| `/exit` | Exit REDPILOT |
+
+Type `/` at the prompt to see available commands with autocomplete suggestions.
+
+### Auto Mode
+
+Auto mode lets tools execute **without requiring manual confirmation** for each invocation:
+
+```
+> /auto
+```
+
+When auto mode is **ON**:
+- Tool calls execute immediately as soon as the LLM requests them
+- The execution screen flashes briefly showing what ran
+- The LLM automatically continues with the result (no `[Enter]` needed)
+- Nested tool calls (LLM following up with another tool) also auto-execute
+- WS backend approval requests are auto-approved
+
+When auto mode is **OFF** (default):
+- Each tool call shows a confirmation dialog — press `Enter` to execute, `Esc` to cancel
+- You approve or reject each tool invocation
+- Write operations (`write_file`, `edit_file`, `shell_exec`) always require approval in manual mode
+
+The banner shows `[AUTO MODE]` and the prompt shows `(auto)` when active.
+Type `/auto` again to toggle it off.
+
+### Backend Connection
+
+The TUI can run tools in three modes, tried in order:
+
+1. **WebSocket backend** (FastAPI Python server) — full ToolRunner pipeline with real adapters
+2. **Local mode** (Node.js `child_process` + `fs`) — runs `shell_exec` and filesystem tools on your host with safety guards
+3. **Simulation** — built-in mock results for all tools
+
+The banner shows the current backend status: `✓ connected (WS)` or `— local mode`. Type `/auto` to see detailed connection info.
+
+To start the Python backend:
+```bash
+cd /path/to/redpilot
+uv run python apps/api/run.py
+```
 
 ### Running a Penetration Test
 

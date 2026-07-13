@@ -44,12 +44,15 @@ function App() {
     prevScreenRef.current = screen;
   }, [screen]);
 
-  // On mount: check if config file exists
+  // On mount: check if config file exists and is complete
+  // Stale/incomplete configs are cleared to force the wizard.
   useEffect(() => {
     try {
       if (isConfigured()) {
         setScreen("console");
       } else {
+        // Clear any stale/incomplete config so the wizard always starts fresh
+        clearConfig();
         setScreen("wizard");
       }
     } catch {

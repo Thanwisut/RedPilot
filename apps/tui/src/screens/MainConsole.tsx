@@ -46,6 +46,19 @@ type Phase =
   | { type: "error"; message: string }
   | { type: "tool_call"; toolCall: ToolCall };
 
+interface CommandDef {
+  command: string;
+  description: string;
+}
+
+const AVAILABLE_COMMANDS: CommandDef[] = [
+  { command: "/help", description: "Show this help message" },
+  { command: "/clear", description: "Clear conversation history" },
+  { command: "/auto", description: "Toggle auto mode (tool calls execute without confirmation)" },
+  { command: "/logout", description: "Return to setup wizard" },
+  { command: "/exit", description: "Exit REDPILOT" },
+];
+
 // ---------------------------------------------------------------------------
 // MainConsole
 // ---------------------------------------------------------------------------
@@ -67,6 +80,7 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
   const [inputBuffer, setInputBuffer] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
   const [executingToolCall, setExecutingToolCall] = useState<ToolCall | null>(null);
+  const [toolResult, setToolResult] = useState<ExecutionResult | null>(null);
   const [autoMode, setAutoMode] = useState(false);
 
   // ---- Refs ----
@@ -206,19 +220,20 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
           setPhase({ type: "streaming", content: fullContent, done: false });
         },
         async (tc) => {
-          const argsStr = Object.entries(tc.arguments)
-            .map(([k, v]) => `${k}: ${v}`)
-            .join(", ");
+          /**
+           * Continue with a tool result: add to history and start LLM follow-up.
+           * Does NOT execute the tool — the result is already provided.
+           */
+          async function continueWithResult(
+            tool: ToolCall,
+            execResult: ExecutionResult,
+          ): Promise<void> {
+            const argsStr = Object.entries(tool.arguments)
+              .map(([k, v]) => `${k}: ${v}`)
+              .join(", ");
 
-          /** Execute tool and run LLM follow-up with the result. */
-          async function runToolAndFollowUp(): Promise<void> {
-            // Show execution screen
-            setExecutingToolCall(tc);
-            const result = await executeTool(tc);
-            setExecutingToolCall(null);
-
-            if (!result) {
-              setHistory((prev) => [...prev, { role: "system", content: `Tool call failed: ${tc.name}` }]);
+            if (!execResult) {
+              setHistory((prev) => [...prev, { role: "system", content: `Tool call failed: ${tool.name}` }]);
               setPhase({ type: "idle" });
               return;
             }
@@ -226,8 +241,8 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
             // Tool executed — add to history
             setHistory((prev) => [
               ...prev,
-              { role: "assistant", content: `[Called tool: ${tc.name}(${argsStr})]` },
-              { role: "system", content: `Tool "${tc.name}" result:\n${result.summary}\n\n${result.details}` },
+              { role: "assistant", content: `[Called tool: ${tool.name}(${argsStr})]` },
+              { role: "system", content: `Tool "${tool.name}" result:\n${execResult.summary}\n\n${execResult.details}` },
             ]);
 
             // ── FOLLOW-UP: LLM continues with tool result ───
@@ -235,9 +250,16 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
             fullContent = "";
 
             const followupMessages = buildMessages([
-              { role: "assistant", content: `[Called tool: ${tc.name}(${argsStr})]` },
-              { role: "system", content: `Tool "${tc.name}" result:\n${result.summary}\n\n${result.details}` },
+              { role: "assistant", content: `[Called tool: ${tool.name}(${argsStr})]` },
+              { role: "system", content: `Tool "${tool.name}" result:\n${execResult.summary}\n\n${execResult.details}` },
             ]);
+
+            const doNested = autoMode
+              ? (nextTc: ToolCall) => executeAndContinue(nextTc)
+              : (nextTc: ToolCall) => {
+                  fullContent += `\n\n[Requested tool: ${nextTc.name}]`;
+                  setPhase({ type: "tool_call", toolCall: nextTc });
+                };
 
             await streamResponse(
               followupMessages,
@@ -245,11 +267,7 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
                 fullContent += token;
                 setPhase({ type: "streaming", content: fullContent, done: false });
               },
-              (tc2) => {
-                // Handle nested tool calls from follow-up
-                fullContent += `\n\n[Requested tool: ${tc2.name}]`;
-                setPhase({ type: "tool_call", toolCall: tc2 });
-              },
+              doNested,
               (err) => {
                 setPhase({ type: "error", message: err });
               },
@@ -259,33 +277,55 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
             );
           }
 
+          /** Execute a tool, show the result briefly, then continue with follow-up. */
+          async function executeAndContinue(tool: ToolCall): Promise<void> {
+            setExecutingToolCall(tool);
+            const execResult = await executeTool(tool);
+            // Show result on ExecutionScreen for 600ms before continuing
+            setToolResult(execResult);
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            setExecutingToolCall(null);
+            setToolResult(null);
+
+            if (!execResult) {
+              setHistory((prev) => [...prev, { role: "system", content: `Tool call failed: ${tool.name}` }]);
+              setPhase({ type: "idle" });
+              return;
+            }
+
+            await continueWithResult(tool, execResult);
+          }
+
           // ── AUTO MODE: execute immediately without confirmation ──
           if (autoMode) {
+            const argsStr = Object.entries(tc.arguments)
+              .map(([k, v]) => `${k}: ${v}`)
+              .join(", ");
             setHistory((prev) => [...prev, {
               role: "system",
               content: `[Auto] Executing tool: ${tc.name}(${argsStr})`,
             }]);
-            await runToolAndFollowUp();
+            await executeAndContinue(tc);
             return;
           }
 
           // ── MANUAL MODE: wait for user to confirm or cancel ─────
           setPhase({ type: "tool_call", toolCall: tc });
 
-          const result = await new Promise<ExecutionResult | null>((resolve) => {
+          const userResult = await new Promise<ExecutionResult | null>((resolve) => {
             toolCallPendingRef.current = { resolve, toolCall: tc };
           });
 
           toolCallPendingRef.current = null;
 
-          if (!result) {
+          if (!userResult) {
             // Cancelled
             setHistory((prev) => [...prev, { role: "system", content: `Tool call cancelled: ${tc.name}` }]);
             setPhase({ type: "idle" });
             return;
           }
 
-          await runToolAndFollowUp();
+          await continueWithResult(tc, userResult);
         },
         (err) => {
           setPhase({ type: "error", message: err });
@@ -466,6 +506,7 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
         toolCall={executingToolCall}
         toolDef={getToolDefinition(executingToolCall.name)}
         onDone={handleExecutionDone}
+        result={toolResult}
       />
     );
   }
@@ -598,6 +639,20 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
 
       {/* Prompt */}
       {phase.type === "idle" && renderPromptLine()}
+
+      {/* Command suggestions when typing / */}
+      {phase.type === "idle" && inputBuffer.startsWith("/") && inputBuffer.length > 0 && (
+        <Box flexDirection="column" marginTop={1} marginLeft={2}>
+          {AVAILABLE_COMMANDS
+            .filter((c) => c.command.startsWith(inputBuffer.toLowerCase()))
+            .map((c) => (
+              <Text key={c.command} color={palette.grayLight}>
+                <Text color={palette.amber}>{c.command}</Text>{"  — "}{c.description}
+              </Text>
+            ))
+          }
+        </Box>
+      )}
     </Box>
   );
 }
