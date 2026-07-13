@@ -153,9 +153,22 @@ class LocalSandboxFactory(SandboxFactory):
         start_time = time.monotonic()
         timeout = context.timeout_seconds
 
+        # ── Remap /scratch paths to actual scratch_dir ──
+        # Filesystem adapters construct paths like /scratch/subdir because
+        # inside Docker, the scratch dir is mounted at /scratch. On the
+        # host (no Docker), we need to use the real scratch_dir path.
+        scratch_dir = context.scratch_dir
+        mapped_argv = []
+        for arg in argv:
+            if arg.startswith("/scratch"):
+                suffix = arg[len("/scratch"):]
+                mapped_argv.append(os.path.join(scratch_dir, suffix.lstrip("/")))
+            else:
+                mapped_argv.append(arg)
+
         try:
             proc = await asyncio.create_subprocess_exec(
-                *argv,
+                *mapped_argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=context.scratch_dir,
@@ -205,7 +218,7 @@ class DevScopeGuard(ScopeGuard):
     """
 
     def __init__(self) -> None:
-        super().__init__(Scope(name="dev", allowed_targets=["*example.com"]))
+        super().__init__(Scope(name="dev", allowed_targets=["*.example.com"]))
 
     def check(
         self,

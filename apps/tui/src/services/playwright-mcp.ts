@@ -3,16 +3,14 @@
  * Spawns @playwright/mcp as an MCP server via stdio transport, connects
  * via the MCP client, calls the requested browser tool, and returns the result.
  *
- * This replaces the Python-based redpilot-browser CLI for local mode.
- * The backend (server.py) can also use this approach when run locally.
- *
- * Mapped actions:
- *   navigate  → browser_navigate
- *   click     → browser_click
- *   type      → browser_type
- *   scroll    → browser_scroll
- *   screenshot → browser_screenshot
- *   execute_js → browser_run_code_unsafe
+ * Tool names discovered via MCP protocol's tools/list:
+ *   browser_navigate (url)        — navigate to URL
+ *   browser_click (target)        — click element by accessibility target
+ *   browser_type (target, text)   — type text into element
+ *   browser_take_screenshot (type, scale) — capture screenshot
+ *   browser_evaluate (function)   — run JavaScript on page
+ *   browser_hover (target)        — hover over element
+ *   browser_run_code_unsafe (code) — execute arbitrary Playwright code
  */
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -26,13 +24,15 @@ export interface BrowserActionResult {
   error?: string;
 }
 
+// Mapped actions → @playwright/mcp tool names with correct argument names.
+// Note: @playwright/mcp uses 'target' (not 'selector') for CSS selectors,
+// and 'text' (not 'value') for input values.
 const ACTION_MAP: Record<string, string> = {
   navigate: "browser_navigate",
   click: "browser_click",
   type: "browser_type",
-  scroll: "browser_scroll",
-  screenshot: "browser_screenshot",
-  execute_js: "browser_run_code_unsafe",
+  screenshot: "browser_take_screenshot",
+  execute_js: "browser_evaluate",
 };
 
 const SUPPORTED_ACTIONS = Object.keys(ACTION_MAP);
@@ -56,6 +56,12 @@ async function getClient(): Promise<Client> {
     command: "npx",
     args: ["-y", "@playwright/mcp@latest"],
     stderr: "pipe",
+    // Non-headless Chromium — user can see the browser window
+    env: {
+      ...(process.env as Record<string, string>),
+      PLAYWRIGHT_BROWSER: "chromium",
+      PLAYWRIGHT_HEADLESS: "false",
+    },
   });
 
   const client = new Client(
@@ -120,31 +126,27 @@ export async function executeBrowserAction(
       break;
 
     case "click":
+      if (args.selector) mcpArgs.target = args.selector;
       if (args.url) mcpArgs.url = args.url;
-      if (args.selector) mcpArgs.selector = args.selector;
       break;
 
     case "type":
-      if (args.selector) mcpArgs.selector = args.selector;
-      if (args.value) mcpArgs.value = args.value;
+      if (args.selector) mcpArgs.target = args.selector;
+      if (args.value) mcpArgs.text = args.value;
       if (args.url) mcpArgs.url = args.url;
-      break;
-
-    case "scroll":
-      if (args.selector) mcpArgs.selector = args.selector;
       break;
 
     case "screenshot":
-      if (args.url) mcpArgs.url = args.url;
-      // Optional: pass selector for element screenshot
-      if (args.selector) mcpArgs.selector = args.selector;
+      // Default to PNG full-page screenshot
+      mcpArgs.type = "png";
+      mcpArgs.scale = "css";
       break;
 
     case "execute_js":
       if (!args.script) {
         return { action, success: false, error: "Script is required for execute_js action" };
       }
-      mcpArgs.code = args.script;
+      mcpArgs.function = args.script;
       break;
   }
 

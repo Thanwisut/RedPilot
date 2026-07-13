@@ -62,6 +62,8 @@ export function buildToolSystemMessage(tools: ToolDefinition[]): string {
     "",
     desc,
     "",
+    "CRITICAL: You MUST provide all required arguments when calling a tool. If a tool has a required argument (marked \"(required)\") and you do not provide it, the tool WILL FAIL. Double-check your tool call has every required field before making it.",
+    "",
     "IMPORTANT: Only call a tool when the user explicitly asks for something the tool does. If the user asks a general question or has a conversation, respond normally without calling tools.",
   ].join("\n");
 }

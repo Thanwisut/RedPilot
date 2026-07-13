@@ -94,6 +94,13 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
     toolCall: ToolCall;
   } | null>(null);
 
+  /** Circuit breaker: tracks consecutive identical tool failures to break infinite loops. */
+  const toolLoopGuardRef = useRef<{
+    toolName: string;
+    summary: string;
+    count: number;
+  }>({ toolName: "", summary: "", count: 0 });
+
   // ---- Cleanup ----
   useEffect(() => {
     return () => {
@@ -174,7 +181,7 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
           break;
         case "tool_call":
           stopSpinner();
-          onToolCall(chunk.toolCall!);
+          await onToolCall(chunk.toolCall!);
           return; // pause streaming — tool call needs user confirmation
         case "error":
           stopSpinner();
@@ -235,6 +242,30 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
               return;
             }
 
+            // ── Circuit breaker: break infinite loops ──
+            const isError = execResult.status === "error";
+            const loopGuard = toolLoopGuardRef.current;
+            if (isError) {
+              if (loopGuard.toolName === tool.name && loopGuard.summary === execResult.summary) {
+                loopGuard.count++;
+              } else {
+                loopGuard.toolName = tool.name;
+                loopGuard.summary = execResult.summary;
+                loopGuard.count = 1;
+              }
+            } else {
+              loopGuard.count = 0; // reset on success
+            }
+            if (loopGuard.count >= 3) {
+              setHistory((prev) => [...prev, {
+                role: "system",
+                content: `⚠️ Breaking loop: "${tool.name}" failed ${loopGuard.count} times with the same error ("${execResult.summary}"). Stopping follow-up.`,
+              }]);
+              loopGuard.count = 0;
+              setPhase({ type: "idle" });
+              return;
+            }
+
             // Tool executed — add to history
             setHistory((prev) => [
               ...prev,
@@ -253,9 +284,18 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
 
             const doNested = autoMode
               ? (nextTc: ToolCall) => executeAndContinue(nextTc)
-              : (nextTc: ToolCall) => {
+              : async (nextTc: ToolCall) => {
                   fullContent += `\n\n[Requested tool: ${nextTc.name}]`;
                   setPhase({ type: "tool_call", toolCall: nextTc });
+                  const nestedResult = await new Promise<ExecutionResult | null>((resolve) => {
+                    toolCallPendingRef.current = { resolve, toolCall: nextTc };
+                  });
+                  toolCallPendingRef.current = null;
+                  if (nestedResult) {
+                    await continueWithResult(nextTc, nestedResult);
+                  } else {
+                    setPhase({ type: "idle" });
+                  }
                 };
 
             await streamResponse(
