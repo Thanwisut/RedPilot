@@ -24,7 +24,7 @@ import { streamChat, buildToolSystemMessage } from "../providers/registry.js";
 import type { ChatMessage, ToolCall } from "../providers/types.js";
 import { AVAILABLE_TOOLS, getToolDefinition } from "../llm/tool-registry.js";
 import { ExecutionScreen } from "./ExecutionScreen.js";
-import { executeTool } from "../services/ExecutionManager.js";
+import { executeTool, setAutoApprove, getWsStatus } from "../services/ExecutionManager.js";
 import type { ExecutionResult } from "../services/ExecutionManager.js";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -67,6 +67,7 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
   const [inputBuffer, setInputBuffer] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
   const [executingToolCall, setExecutingToolCall] = useState<ToolCall | null>(null);
+  const [autoMode, setAutoMode] = useState(false);
 
   // ---- Refs ----
   const abortRef = useRef<AbortController | null>(null);
@@ -205,10 +206,72 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
           setPhase({ type: "streaming", content: fullContent, done: false });
         },
         async (tc) => {
-          // ── TOOL CALL RECEIVED ──────────────────────────────────
+          const argsStr = Object.entries(tc.arguments)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(", ");
+
+          /** Execute tool and run LLM follow-up with the result. */
+          async function runToolAndFollowUp(): Promise<void> {
+            // Show execution screen
+            setExecutingToolCall(tc);
+            const result = await executeTool(tc);
+            setExecutingToolCall(null);
+
+            if (!result) {
+              setHistory((prev) => [...prev, { role: "system", content: `Tool call failed: ${tc.name}` }]);
+              setPhase({ type: "idle" });
+              return;
+            }
+
+            // Tool executed — add to history
+            setHistory((prev) => [
+              ...prev,
+              { role: "assistant", content: `[Called tool: ${tc.name}(${argsStr})]` },
+              { role: "system", content: `Tool "${tc.name}" result:\n${result.summary}\n\n${result.details}` },
+            ]);
+
+            // ── FOLLOW-UP: LLM continues with tool result ───
+            startSpinner();
+            fullContent = "";
+
+            const followupMessages = buildMessages([
+              { role: "assistant", content: `[Called tool: ${tc.name}(${argsStr})]` },
+              { role: "system", content: `Tool "${tc.name}" result:\n${result.summary}\n\n${result.details}` },
+            ]);
+
+            await streamResponse(
+              followupMessages,
+              (token) => {
+                fullContent += token;
+                setPhase({ type: "streaming", content: fullContent, done: false });
+              },
+              (tc2) => {
+                // Handle nested tool calls from follow-up
+                fullContent += `\n\n[Requested tool: ${tc2.name}]`;
+                setPhase({ type: "tool_call", toolCall: tc2 });
+              },
+              (err) => {
+                setPhase({ type: "error", message: err });
+              },
+              () => {
+                setPhase({ type: "streaming", content: fullContent, done: true });
+              },
+            );
+          }
+
+          // ── AUTO MODE: execute immediately without confirmation ──
+          if (autoMode) {
+            setHistory((prev) => [...prev, {
+              role: "system",
+              content: `[Auto] Executing tool: ${tc.name}(${argsStr})`,
+            }]);
+            await runToolAndFollowUp();
+            return;
+          }
+
+          // ── MANUAL MODE: wait for user to confirm or cancel ─────
           setPhase({ type: "tool_call", toolCall: tc });
 
-          // Wait for user to confirm or cancel
           const result = await new Promise<ExecutionResult | null>((resolve) => {
             toolCallPendingRef.current = { resolve, toolCall: tc };
           });
@@ -222,43 +285,7 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
             return;
           }
 
-          // Tool executed — add to history
-          const argsStr = Object.entries(tc.arguments)
-            .map(([k, v]) => `${k}: ${v}`)
-            .join(", ");
-          setHistory((prev) => [
-            ...prev,
-            { role: "assistant", content: `[Called tool: ${tc.name}(${argsStr})]` },
-            { role: "system", content: `Tool "${tc.name}" result:\n${result.summary}\n\n${result.details}` },
-          ]);
-
-          // ── FOLLOW-UP: LLM continues with tool result ───────────
-          startSpinner();
-          fullContent = "";
-
-          const followupMessages = buildMessages([
-            { role: "assistant", content: `[Called tool: ${tc.name}(${argsStr})]` },
-            { role: "system", content: `Tool "${tc.name}" result:\n${result.summary}\n\n${result.details}` },
-          ]);
-
-          await streamResponse(
-            followupMessages,
-            (token) => {
-              fullContent += token;
-              setPhase({ type: "streaming", content: fullContent, done: false });
-            },
-            (tc2) => {
-              // Handle nested tool calls from follow-up
-              fullContent += `\n\n[Requested tool: ${tc2.name}]`;
-              setPhase({ type: "tool_call", toolCall: tc2 });
-            },
-            (err) => {
-              setPhase({ type: "error", message: err });
-            },
-            () => {
-              setPhase({ type: "streaming", content: fullContent, done: true });
-            },
-          );
+          await runToolAndFollowUp();
         },
         (err) => {
           setPhase({ type: "error", message: err });
@@ -275,7 +302,7 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
       }
       setPhase({ type: "error", message: String(err) });
     }
-  }, [config, startSpinner, stopSpinner]);
+  }, [config, startSpinner, stopSpinner, autoMode]);
 
   // ---- Handle streaming completion ----
   useEffect(() => {
@@ -377,6 +404,27 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
       case "/logout": case "logout": onLogout?.(); break;
       case "/clear": case "clear": setHistory([]); break;
       case "/exit": case "quit": case "/quit": exit(); break;
+      case "/auto": {
+        const newVal = !autoMode;
+        setAutoMode(newVal);
+        // Sync with WS approval gate: when auto mode is on, auto-approve
+        // approval.requested events from the backend so it doesn't stall.
+        setAutoApprove(newVal);
+        const wsStatus = getWsStatus();
+        setHistory((prevH) => [...prevH, {
+          role: "system",
+          content: [
+            `Auto mode: ${newVal ? "ON" : "OFF"}. Tool calls will ${newVal ? "execute automatically without confirmation" : "prompt for approval before executing"}.`,
+            wsStatus.connected
+              ? `Backend: connected (${wsStatus.url})`
+              : wsStatus.connecting
+                ? `Backend: connecting... (${wsStatus.url})`
+                : `Backend: disconnected — local mode`,
+            wsStatus.autoApprove ? "Auto-approve: active — approval requests auto-approved" : "Auto-approve: inactive — requires manual approval",
+          ].join("\n"),
+        }]);
+        break;
+      }
       case "/help": case "help":
         setHistory((prev) => [...prev, {
           role: "assistant",
@@ -384,8 +432,11 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
             "Available commands:",
             "  /help     — Show this message",
             "  /clear    — Clear conversation history",
+            "  /auto     — Toggle auto mode (tool calls execute without confirmation)",
             "  /logout   — Return to setup wizard",
             "  /exit     — Exit REDPILOT",
+            "",
+            `Auto mode is currently: ${autoMode ? "ON \u2014 tools execute immediately" : "OFF \u2014 tools require approval"}`,
             "",
             "Or just type anything to chat with me.",
           ].join("\n"),
@@ -424,6 +475,16 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
     ? SPINNER_FRAMES[phase.spinnerIdx] ?? SPINNER_FRAMES[0]
     : null;
 
+  // ── WS status (for banner and commands) ──
+  const wsStatus = history.length === 0 && phase.type === "idle" ? getWsStatus() : null;
+  const backendLabel = wsStatus
+    ? wsStatus.connected
+      ? "\u2713 connected (WS)"
+      : wsStatus.connecting
+        ? "connecting..."
+        : "\u2014 local mode"
+    : "";
+
   function renderPromptLine() {
     const before = inputBuffer.slice(0, cursorPos);
     const at = inputBuffer[cursorPos] ?? " ";
@@ -434,6 +495,7 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
         <Text color={palette.white}>{before}</Text>
         <Text color={palette.grayDark} underline>{at}</Text>
         <Text color={palette.white}>{after}</Text>
+        {autoMode && <Text color={palette.amber}> (auto)</Text>}
       </Box>
     );
   }
@@ -447,14 +509,24 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
             <Text key={i} color={palette.red}>{line || " "}</Text>
           ))}
           <Box flexDirection="column" marginTop={1}>
-            <Text color={palette.grayLight}>
-              Provider: <Text color={palette.white} bold>{config?.provider ?? "—"}</Text>
-            </Text>
+            <Box>
+              <Text color={palette.grayLight}>
+                Provider: <Text color={palette.white} bold>{config?.provider ?? "—"}</Text>
+              </Text>
+              {autoMode && <Text color={palette.amber} bold>  [AUTO MODE]</Text>}
+            </Box>
             <Text color={palette.grayLight}>
               Model: <Text color={palette.white} bold>{config?.model ?? "—"}</Text>
             </Text>
+            <Text color={palette.grayLight}>
+              Backend: <Text color={palette.grayMid}>{backendLabel}</Text>
+            </Text>
+            <Box marginTop={1}>
+              <Text color={autoMode ? palette.amber : palette.statusCompleted}>
+                {autoMode ? "Auto mode — tools execute without confirmation. Type /auto to disable." : "Ready."}
+              </Text>
+            </Box>
           </Box>
-          <Box marginTop={1}><Text color={palette.statusCompleted}>Ready.</Text></Box>
           <Box marginTop={1}>
             <Text dimColor color={palette.grayDark}>Type a message or /help for commands.</Text>
           </Box>

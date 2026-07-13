@@ -5,9 +5,12 @@ description = "REDPILOT FastAPI backend — REST + WebSocket gateway"
 requires-python = ">=3.12"
 dependencies = [
     "redpilot-core",
+    "redpilot-tools",
     "redpilot-orchestrator",
     "redpilot-providers",
     "fastapi",
+    "uvicorn",
+    "websockets",
 ]
 
 [tool.uv.sources]
