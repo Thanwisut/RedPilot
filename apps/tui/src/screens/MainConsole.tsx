@@ -15,7 +15,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useInput, useStdout, useApp } from "ink";
-import { MarkdownText } from "@assistant-ui/react-ink-markdown";
+import { MarkdownRenderer } from "../components/MarkdownRenderer.js";
 import { Box, Text } from "../components/Ink.js";
 import { palette } from "../theming/colors.js";
 import { getSplashArt } from "../theming/splash-ascii.js";
@@ -474,10 +474,8 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
             {entry.role === "assistant" && (
               <Box flexDirection="column">
                 <Text bold color={palette.red}>REDPILOT</Text>
-                <MarkdownText
+                <MarkdownRenderer
                   text={entry.content}
-                  wrap={true}
-                  theme="dark"
                 />
               </Box>
             )}
@@ -494,10 +492,8 @@ export function MainConsole({ onLogout }: MainConsoleProps) {
         {phase.type === "streaming" && (
           <Box flexDirection="column" marginTop={1}>
             <Text bold color={palette.red}>REDPILOT</Text>
-            <MarkdownText
+            <MarkdownRenderer
               text={phase.content}
-              wrap={true}
-              theme="dark"
             />
             {!phase.done && <Text color={palette.grayMid}>{"\u258C"}</Text>}
           </Box>
